@@ -1,6 +1,7 @@
 # PitchPrint for Wordpress
 
 This Wordpress plugin for PichPrint provides an interface between PitchPrint and Wordpress.
+
 The plugin allows you to do the following on Wordpress:
 
 * Assign a PitchPrint design to a Woocommerce product
