@@ -1,1 +1,1 @@
-# PitchPrint V9 Release for Wordpress
+# PitchPrint for Wordpress
