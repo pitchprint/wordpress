@@ -2,14 +2,14 @@
         /*
 		* Plugin Name: PitchPrint
 		* Plugin URI: https://pitchprint.com
-		* Description: <strong>BREAKING RELEASE!! You need to clone your data from version 8 first, before upgrading to Version 9.<br/>Check your PitchPrint admin domains page to Copy data</strong> <br/>:: A beautiful web based print customization app for your online store. Integrates with WooCommerce.
+		* Description: A beautiful web based print customization app for your online store. Integrates with WooCommerce.
 		* Author: PitchPrint
-		* Version: 9.0.24
+		* Version: 10.0.4
 		* Author URI: https://pitchprint.com
 		* Requires at least: 3.8
-		* Tested up to: 5.2
+		* Tested up to: 5.4
         * WC requires at least: 3.0.0
-        * WC tested up to: 3.6.5
+        * WC tested up to: 4.3.2
 		*
 		* @package PitchPrint
 		* @category Core
@@ -19,24 +19,25 @@
 	load_plugin_textdomain('PitchPrint', false, basename( dirname( __FILE__ ) ) . '/languages/' );
 
 	include('utils/browser.php');
-
-	function register_session(){
-		if(!session_id()) session_start();
-	}
+	
 	function end_session() {
-		session_destroy();
+		if(session_id()) session_destroy();
 	}
-	add_action('init','register_session', 0);
-	add_action('wp_login','register_session');
 	add_action('wp_logout','end_session');
+
+	require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
 
 	class PitchPrint {
 
-		public $version = '9.0.0';
+		public $version = '10.0.3';
 
 		protected $editButtonsAdded = false;
+		
+		private $ppTable;
 
 		public function __construct() {
+			global $wpdb;
+			$this->ppTable = $wpdb->prefix . 'pitchprint_projects';
 			$this->define_constants();
 			$this->init_hooks();
 		}
@@ -90,8 +91,25 @@
 			if($order->get_data()['status'] === 'processing') pp_order_status_completed($order_id, null, 'processing');
 		}
 		
+		private function clearProjects($productId) {
+			global $wpdb;
+			$sessId = isset($_COOKIE['pitchprint_sessId']) ? $_COOKIE['pitchprint_sessId'] : false;
+			if (!$sessId) return false;
+			$wpdb->delete($this->ppTable, array('id' => $sessId, 'product_id' => $productId) );
+		}
+		
+		private function clearOldProjects() {
+			global $wpdb;
+			$sql = "DELETE FROM `$this->ppTable` WHERE `expires` < '" . date('Y-m-d H:i:s', time()) . "';";
+			$wpdb->query($sql);
+		}
+		
 		function pp_order_status_completed($order_id, $status_from, $status_to) {
 			$pp_webhookUrl = false;
+			
+			// Clear Old Projects
+			if ( date('j') == '1' ) 
+				$this->clearOldProjects();
 			
 			if ( $status_to === "completed" ) $pp_webhookUrl = 'order-complete';
 			if ( $status_to === "processing" ) $pp_webhookUrl = 'order-processing';
@@ -121,7 +139,7 @@
 				$userId = $order_data['customer_id'];
 				$items = array();
 
-				foreach ($order->get_items() as $item_key => $item_values) {
+				foreach ($products as $item_key => $item_values) {
 					$item_data = $item_values->get_data();
 					$items[] = array(
 						'name' => $item_data['name'],
@@ -204,7 +222,7 @@
 		public function pp_order_items_display($output, $item) {
 			foreach ($item->get_meta_data() as $meta_id => $meta) {
 				if ($meta->key === '_w2p_set_option') {
-					$output .= '<span data-pp="' . rawurlencode($meta->value) . '" class="pp-cart-order"></span>';
+					$output .= '<span style="display:none" data-pp="' . rawurlencode($meta->value) . '" class="pp-cart-order"></span>';
 				}
 			}
 			return $output;
@@ -214,7 +232,7 @@
                 if (!empty($_this->meta['_w2p_set_option'])) {
                     $val = $_this->meta['_w2p_set_option'][0];
                     $val = rawurlencode($val);
-                    $output .= '<span data-pp="' . $val . '" class="pp-cart-order"></span>';
+                    $output .= '<span  style="display:none" data-pp="' . $val . '" class="pp-cart-order"></span>';
                 }
             }
             return $output;
@@ -303,7 +321,10 @@
 
 		public function pp_add_order_item_meta($item_id, $cart_item) {
 			global $woocommerce;
-			if (!empty($cart_item['_w2p_set_option'])) wc_add_order_item_meta($item_id, '_w2p_set_option', $cart_item['_w2p_set_option']);
+			if	( !empty($cart_item['_w2p_set_option']) )
+				wc_add_order_item_meta($item_id, '_w2p_set_option', $cart_item['_w2p_set_option']);
+			if	( gettype($cart_item) == 'object' && isset($cart_item->legacy_values) && isset($cart_item->legacy_values['_w2p_set_option']) )
+				wc_add_order_item_meta($item_id, '_w2p_set_option', $cart_item->legacy_values['_w2p_set_option']);
 		}
 
 		public function pp_get_cart_item_from_session($cart_item, $values) {
@@ -312,21 +333,50 @@
 		}
 
 		public function pp_add_cart_item_data($cart_item_meta, $product_id) {
-			if (isset($_SESSION['pp_projects'])) {
-				$_projects = $_SESSION['pp_projects'];
-			}
+			$_projects = $this->getProjectData($product_id);
 			if (isset($_projects)) {
 				if (isset($_projects[$product_id])) {
 					$cart_item_meta['_w2p_set_option'] = $_projects[$product_id];
 					if (!isset($_SESSION['pp_cache'])) $_SESSION['pp_cache'] = array();
 					$opt_ = json_decode(rawurldecode($_projects[$product_id]), true);
 					if ($opt_['type'] === 'p') $_SESSION['pp_cache'][$opt_['projectId']] = $_projects[$product_id] . "";
-					unset($_SESSION['pp_projects'][$product_id]);
+					if ( isset($_SESSION['pp_projects']) && isset($_SESSION['pp_projects'][$product_id]) )
+						unset($_SESSION['pp_projects'][$product_id]);
+					else 
+						$this->clearProjects($product_id);
 				}
 			}
 			return $cart_item_meta;
 		}
 
+		private function register_session(){
+			if(!session_id() && !headers_sent()) session_start();
+		}
+		
+		private function getProjectData($product_id = null) {
+			if (!$product_id) {
+				global $post;
+				$product_id = $post->ID;
+			}
+			
+			$_projects = array();
+			
+			
+			if ( isset($_COOKIE['pitchprint_sessId']) ) {
+				global $wpdb;
+				$sessId = $_COOKIE['pitchprint_sessId'];
+				$sql = "SELECT `value` FROM `$this->ppTable` WHERE `product_id` = $product_id AND `id` = '$sessId';";
+				$results = $wpdb->get_results($sql);
+				if(count($results))
+					$_projects[$product_id] = $results[0]->value;
+					
+			} else {
+				$this->register_session();
+				$_projects =  $_SESSION['pp_projects'];
+			}
+			return $_projects;
+		}
+		
 		public function add_pp_edit_button() {
 			if ($this->editButtonsAdded) {
 				return;
@@ -357,13 +407,18 @@
 			$pp_previews = '';
 			$pp_upload_ready = false;
 
-			$_projects = isset($_SESSION['pp_projects']) ? $_SESSION['pp_projects'] : array();
+			$_projects = $this->getProjectData();
+
 			$_ppcache = "";
 			$pp_now_value = "";
 			
-			if (isset($_GET['pitchprint']) && isset($_SESSION['pp_cache'])) {
-				if (!empty($_GET['pitchprint']) && !empty($_SESSION['pp_cache'])) {
-					if (!empty($_SESSION['pp_cache'][$_GET['pitchprint']])) $_ppcache = $_SESSION['pp_cache'][$_GET['pitchprint']];
+			if ( !isset($_COOKIE['pitchprint_sessId']) ) {
+				$this->register_session();
+			
+				if (isset($_GET['pitchprint']) && isset($_SESSION['pp_cache'])) {
+					if (!empty($_GET['pitchprint']) && !empty($_SESSION['pp_cache'])) {
+						if (!empty($_SESSION['pp_cache'][$_GET['pitchprint']])) $_ppcache = $_SESSION['pp_cache'][$_GET['pitchprint']];
+					}
 				}
 			}
 
@@ -374,6 +429,8 @@
 					$pp_now_value = $_projects[$post->ID];
 				}
 			}
+			
+			$pp_design_id = $pp_set_option[0];
 
 			if (!empty($pp_now_value)) {
 				$opt_ = json_decode(rawurldecode($pp_now_value), true);
@@ -384,7 +441,7 @@
 					$pp_mode = 'edit';
 					$pp_project_id = $opt_['projectId'];
 					$pp_previews = $opt_['numPages'];
-				}
+					if (isset($opt_['designId']) && !empty($opt_['designId'])) $pp_design_id = $opt_['designId'];				}
 			}
 
 			$userData = '';
@@ -420,8 +477,6 @@
 					}";
 			}
 			
-			// $miniMode = $pp_set_option[0] === "3d8f3899904ef2392795c681091600d0" ? '\'mini\'' : 'undefined';
-
 			wc_enqueue_js("
 				ajaxsearch = undefined;
 				(function(_doc) {
@@ -434,7 +489,7 @@
 						userId: '{$pp_uid}',
 						langCode: '" . substr(get_bloginfo('language'), 0, 2) . "',
 						enableUpload: {$pp_set_option[1]},
-						designId: '{$pp_set_option[0]}',
+						designId: '{$pp_design_id}',
 						previews: '{$pp_previews}',
 						mode: '{$pp_mode}',
 						createButtons: true,
@@ -445,7 +500,8 @@
 						product: {
 							id: '" . $post->ID . "',
 							name: '{$post->post_name}'
-						}{$userData}
+						}{$userData},
+						ppValue: '{$pp_now_value}'
 					});
 				})(document);");
 			echo '
@@ -633,7 +689,47 @@
 		}
 
 	}
-
+	global $PitchPrint;
 	$PitchPrint = new PitchPrint();
 
+	function pp_install() {
+		global $PitchPrint;
+		$pp_version = get_option('pitchprint_version');
+		
+		if ($pp_version != $PitchPrint->version) {
+			global $wpdb;
+	
+			$table_name 		= $wpdb->prefix . 'pitchprint_projects';
+			$charset_collate	= $wpdb->get_charset_collate();
+			
+			$sql = "CREATE TABLE $table_name (
+			  id varchar(55) NOT NULL ,
+			  product_id mediumint(9) NOT NULL,
+			  value TEXT  NOT NULL,
+			  expires TIMESTAMP
+			) $charset_collate;";
+			
+			$exec = dbDelta( $sql );
+		}
+		if ($pp_version) 
+			update_option('pitchprint_version', $PitchPrint->version);
+		else
+			add_option('pitchprint_version', $PitchPrint->version);
+	}
+	
+	register_activation_hook( __FILE__, 'pp_install');
+	
+	function register_session() {
+		if(!isset($_COOKIE['pitchprint_sessId']))
+			setcookie('pitchprint_sessId', uniqid('pp_w2p_', true), time()+60*60*24*30, '/');
+	}
+	
+	add_action('init','register_session', 0);
+	
+	function pitchprint_doUpdate() {
+		global $PitchPrint;
+		if ( get_site_option('pitchprint_version') != $PitchPrint->version )	
+			pp_install();
+	}
+	add_action('plugins_loaded', 'pitchprint_doUpdate');
 ?>

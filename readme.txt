@@ -2,8 +2,8 @@
 Contributors: flexcubed
 Tags: customizer, photo album, print shop, web2print, gift print, diy print, product customizer, web-to-print, print software, print solution, HTML5 WYSIWYG, t-shirt designer, wysiwyg print editor, business card
 Requires at least: 3.8
-Tested up to: 5.2
-Stable tag: 9.0.24
+Tested up to: 5.4
+Stable tag: 10.0.4
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -97,6 +97,45 @@ Check out our [website for more details](https://pitchprint.com)
 4. Admin settings.
 
 == Changelog ==
+
+== 10.0.4 = 
+Minor bug fix relating to session and cookies
+
+== 10.0.3 = 
+Minor bug fix relating to cloned projects
+
+== 10.0.2 = 
+If cookies are not allowed, we use session.
+
+== 10.0.1 = 
+Fixed WC 5.2 compatibility issue.
+
+= 10.0.0 =
+No longer using session to store projects. Now storing projects in WP database.
+
+= 9.0.33 =
+Tested WP up to 4.3.2
+
+= 9.0.31 =
+Updated tested up to 5.4
+
+= 9.0.30 =
+Check session on init hook
+
+= 9.0.29 =
+Checked headers before session start
+
+= 9.0.28 =
+Changed the way session is used, to prevent site health errors.
+
+= 9.0.27 =
+Update to make PitchPrint compatible with WordPress version 5.4
+
+= 9.0.26 =
+Forced hiding of pp data in item meta
+
+= 9.0.25 = 
+Fix for Divi theme
 
 = 9.0.24 =
 We tested Woocommerce compatibility up to version 3.6.5
