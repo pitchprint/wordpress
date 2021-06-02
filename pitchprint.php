@@ -393,7 +393,7 @@
 			// var_dump($pp_customization_required);die();
 			$pp_customization_required = 
 				( $pp_customization_required === 'undefined' || 
-				( isset($pp_customization_required) && strlen($pp_customization_required) == 0) ) ? 'undefined' : ( $pp_customization_required ? 1 : 0 );
+				( isset($pp_customization_required) && strlen($pp_customization_required) == 0) ) ? 0 : ( $pp_customization_required ? 1 : 0 );
 			$pp_pdf_download = 
 				( $pp_pdf_download === 'undefined' || 
 				( isset($pp_pdf_download) && strlen($pp_pdf_download) == 0 ) ) ? 'undefined' : ( $pp_pdf_download ? 1: 0 );
